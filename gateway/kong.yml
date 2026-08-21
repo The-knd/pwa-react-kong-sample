@@ -1,0 +1,62 @@
+_format_version: "3.0"
+_transform: true
+
+# Kong en modo DB-less: toda la configuración vive en este archivo.
+# Los servicios se referencian por nombre de contenedor en la red pos-net.
+
+services:
+  - name: auth
+    url: http://auth-service:3000
+    routes:
+      - name: auth-route
+        paths:
+          - /api/v1/auth
+        strip_path: false
+    plugins:
+      # freno básico a fuerza bruta sobre el endpoint público más sensible
+      - name: rate-limiting
+        config:
+          minute: 20
+          policy: local
+
+  - name: users
+    url: http://users-service:3000
+    routes:
+      - name: users-route
+        paths:
+          - /api/v1/users
+        strip_path: false
+
+  - name: clients
+    url: http://clients-service:3000
+    routes:
+      - name: clients-route
+        paths:
+          - /api/v1/clients
+        strip_path: false
+
+  - name: sales
+    url: http://sales-service:3000
+    routes:
+      - name: sales-route
+        paths:
+          - /api/v1/sales
+        strip_path: false
+
+plugins:
+  - name: cors
+    config:
+      # el front normalmente habla same-origin vía proxy nginx; esto cubre
+      # pruebas directas contra :8000 desde el origen del PWA
+      origins:
+        - http://localhost:3000
+      methods:
+        - GET
+        - POST
+        - PATCH
+        - OPTIONS
+      headers:
+        - Content-Type
+        - Accept
+      credentials: true
+      max_age: 3600

@@ -1,0 +1,43 @@
+# ── Entorno y secretos (NUNCA al repositorio) ─────────────────
+.env
+.env.local
+.env.*.local
+secrets/*.pem
+
+# ── Dependencias ──────────────────────────────────────────────
+node_modules/
+
+# ── Artefactos de compilación ─────────────────────────────────
+dist/
+build/
+dev-dist/
+*.tsbuildinfo
+
+# ── Cachés de herramientas ────────────────────────────────────
+.vite/
+coverage/
+*.log
+npm-debug.log*
+.pnpm-store/
+
+# ── Docker local ──────────────────────────────────────────────
+docker-compose.override.yml
+docker-compose.*.override.yml
+
+# ── Sistema operativo ─────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Editores / IDE ────────────────────────────────────────────
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*.swo
+
+# ── Varios ────────────────────────────────────────────────────
+*.local
+tmp/
+.cache/

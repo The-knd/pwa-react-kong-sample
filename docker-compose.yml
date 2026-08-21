@@ -1,0 +1,164 @@
+name: pos-mvp
+
+# Variables compartidas por los 4 microservicios
+x-backend-env: &backend-env
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_USER: ${POS_DB_USER:?define POS_DB_USER en .env}
+  DB_PASSWORD: ${POS_DB_PASSWORD:?define POS_DB_PASSWORD en .env}
+  COOKIE_SECURE: ${COOKIE_SECURE:-false}
+
+services:
+  # ── Datos: un contenedor, tres bases lógicas (database-per-service) ────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?define POSTGRES_USER en .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?define POSTGRES_PASSWORD en .env}
+      POS_DB_USER: ${POS_DB_USER}
+      POS_DB_PASSWORD: ${POS_DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks:
+      pos-net:
+        ipv4_address: 172.30.0.2
+    # ports: ["5432:5432"]   # descomenta solo para inspección local
+
+  # ── Microservicios ──────────────────────────────────────────────────────
+  auth-service:
+    build:
+      context: ./backend
+      args: { SERVICE_NAME: auth-service }
+    image: pos/auth-service:0.1.0
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      DB_NAME: users_db
+      JWT_PRIVATE_KEY_PATH: /secrets/jwt-private.pem
+      JWT_PUBLIC_KEY_PATH: /secrets/jwt-public.pem
+    volumes:
+      - ./secrets/jwt-private.pem:/secrets/jwt-private.pem:ro
+      - ./secrets/jwt-public.pem:/secrets/jwt-public.pem:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks:
+      pos-net:
+        ipv4_address: 172.30.0.11
+
+  users-service:
+    build:
+      context: ./backend
+      args: { SERVICE_NAME: users-service }
+    image: pos/users-service:0.1.0
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      DB_NAME: users_db
+      JWT_PUBLIC_KEY_PATH: /secrets/jwt-public.pem
+    volumes:
+      - ./secrets/jwt-public.pem:/secrets/jwt-public.pem:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks:
+      pos-net:
+        ipv4_address: 172.30.0.12
+
+  clients-service:
+    build:
+      context: ./backend
+      args: { SERVICE_NAME: clients-service }
+    image: pos/clients-service:0.1.0
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      DB_NAME: clients_db
+      JWT_PUBLIC_KEY_PATH: /secrets/jwt-public.pem
+    volumes:
+      - ./secrets/jwt-public.pem:/secrets/jwt-public.pem:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks:
+      pos-net:
+        ipv4_address: 172.30.0.13
+
+  sales-service:
+    build:
+      context: ./backend
+      args: { SERVICE_NAME: sales-service }
+    image: pos/sales-service:0.1.0
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      DB_NAME: sales_db
+      JWT_PUBLIC_KEY_PATH: /secrets/jwt-public.pem
+    volumes:
+      - ./secrets/jwt-public.pem:/secrets/jwt-public.pem:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks:
+      pos-net:
+        ipv4_address: 172.30.0.14
+
+  # ── Gateway ─────────────────────────────────────────────────────────────
+  kong:
+    image: kong:3.9
+    restart: unless-stopped
+    environment:
+      KONG_DATABASE: off
+      KONG_DECLARATIVE_CONFIG: /kong/kong.yml
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+      KONG_ADMIN_LISTEN: 127.0.0.1:8001
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_LOG_LEVEL: notice
+    volumes:
+      - ./gateway/kong.yml:/kong/kong.yml:ro
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 12
+    depends_on:
+      auth-service: { condition: service_healthy }
+      users-service: { condition: service_healthy }
+      clients-service: { condition: service_healthy }
+      sales-service: { condition: service_healthy }
+    networks:
+      pos-net:
+        ipv4_address: 172.30.0.20
+
+  # ── Frontend PWA (nginx + proxy same-origin a Kong) ─────────────────────
+  frontend:
+    build: ./frontend/pwa-app
+    image: pos/frontend:0.1.0
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      kong: { condition: service_started }
+    networks:
+      pos-net:
+        ipv4_address: 172.30.0.21
+
+volumes:
+  pgdata:
+
+networks:
+  pos-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          gateway: 172.30.0.1
